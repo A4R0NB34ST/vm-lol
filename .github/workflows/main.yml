@@ -1,0 +1,155 @@
+name: 🎮 PC Gaming con LoL
+
+on:
+  workflow_dispatch:
+
+jobs:
+  gaming-pc:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: 🔧 Configurar Windows RDP
+        run: |
+          # Activar RDP
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          
+          # Firewall para RDP
+          netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
+          
+          # Reiniciar servicio
+          Restart-Service TermService -Force
+          
+          echo "✅ RDP Configurado"
+
+      - name: 👤 Crear Usuario Gamer
+        run: |
+          # Contraseña: Gamer123! (puedes cambiarla)
+          $Password = ConvertTo-SecureString "Gamer123!" -AsPlainText -Force
+          
+          # Crear usuario
+          New-LocalUser -Name "Gamer" -Password $Password -AccountNeverExpires
+          Add-LocalGroupMember -Group "Administrators" -Member "Gamer"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Gamer"
+          
+          echo "✅ Usuario creado: Gamer / Gamer123!"
+
+      - name: 🌐 Instalar y Configurar Tailscale
+        run: |
+          # Descargar Tailscale
+          $TailscaleURL = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
+          $Installer = "$env:TEMP\tailscale.msi"
+          Invoke-WebRequest -Uri $TailscaleURL -OutFile $Installer
+          
+          # Instalar
+          Start-Process msiexec.exe -Wait -ArgumentList "/i", "`"$Installer`"", "/quiet", "/norestart"
+          
+          # Configurar (usa tu clave de Tailscale)
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=github-gamer
+          
+          # Obtener IP
+          Start-Sleep -Seconds 10
+          $IP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+          echo "TAILSCALE_IP=$IP" >> $env:GITHUB_ENV
+          echo "✅ Tailscale IP: $IP"
+
+      - name: 🎮 Instalar League of Legends (SIN REINICIAR)
+        run: |
+          Write-Host "=== DESCARGANDO LEAGUE OF LEGENDS ==="
+          
+          # URL oficial de descarga
+          $LOL_URL = "https://lol.secure.dyn.riotcdn.net/channels/public/x/installer/current/live.la2.exe"
+          $LOL_Installer = "$env:TEMP\LeagueInstaller.exe"
+          
+          # Descargar
+          Invoke-WebRequest -Uri $LOL_URL -OutFile $LOL_Installer
+          Write-Host "✅ Descargado - Tamaño: $((Get-Item $LOL_Installer).Length / 1MB) MB"
+          
+          # Instalar sin reiniciar
+          Write-Host "Instalando (esto puede tardar 5-10 minutos)..."
+          Start-Process -FilePath $LOL_Installer -ArgumentList "--skip-to-game" -Wait -NoNewWindow
+          
+          # Verificar instalación
+          if (Test-Path "C:\Riot Games\League of Legends\LeagueClient.exe") {
+              Write-Host "✅ League of Legends INSTALADO CORRECTAMENTE"
+          } else {
+              Write-Host "⚠️  Instalación en progreso..."
+          }
+
+      - name: ⚙️ Preparar Recuperación Tras Reinicio
+        run: |
+          # Crear script de recuperación
+          $RecoveryScript = @'
+          # Script para recuperar conexión después de reiniciar
+          Start-Sleep -Seconds 30
+          
+          # 1. Activar Tailscale
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }}
+          
+          # 2. Activar RDP
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
+          Restart-Service TermService -Force
+          
+          # 3. Mostrar IP nueva
+          $NewIP = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+          Write-Host "========================================"
+          Write-Host "✅ CONEXIÓN RECUPERADA"
+          Write-Host "Nueva IP: $NewIP"
+          Write-Host "Usuario: Gamer"
+          Write-Host "Contraseña: Gamer123!"
+          Write-Host "========================================"
+'@
+          
+          # Guardar script
+          $RecoveryScript | Out-File "C:\Users\Public\Recovery.ps1"
+          
+          # Hacer que se ejecute al iniciar Windows
+          $Action = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-ExecutionPolicy Bypass -File C:\Users\Public\Recovery.ps1"
+          $Trigger = New-ScheduledTaskTrigger -AtStartup
+          Register-ScheduledTask -TaskName "RecoveryGamingPC" -Action $Action -Trigger $Trigger -RunLevel Highest -Force
+          
+          echo "✅ Sistema preparado para recuperación tras reinicio"
+
+      - name: 📢 Mostrar Información de Conexión
+        run: |
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "🎮 PC GAMING LISTA 🎮"
+          Write-Host "========================================"
+          Write-Host ""
+          Write-Host "🌐 CONÉCTATE CON:"
+          Write-Host "   IP: $env:TAILSCALE_IP"
+          Write-Host "   Usuario: Gamer"
+          Write-Host "   Contraseña: Gamer123!"
+          Write-Host ""
+          Write-Host "⏰ DURACIÓN: 6 horas máximo"
+          Write-Host "⚠️  Si reinicias, espera 1 minuto y reconecta"
+          Write-Host "⚠️  Si pierdes conexión, Tailscale reconecta automático"
+          Write-Host ""
+          Write-Host "🎮 League of Legends ya está instalado"
+          Write-Host "📍 Ruta: C:\Riot Games\League of Legends"
+          Write-Host "========================================"
+          Write-Host ""
+
+      - name: ⏳ Mantener PC Encendida
+        run: |
+          # Mantener activa por 5 horas y 50 minutos
+          $Horas = 5
+          $Minutos = 50
+          $TotalSegundos = ($Horas * 3600) + ($Minutos * 60)
+          
+          Write-Host "⏰ Manteniendo PC activa por $Horas horas y $Minutos minutos..."
+          Write-Host "❌ Para apagar: Ve a GitHub Actions > Cancela este workflow"
+          
+          # Contador regresivo
+          for ($i = $TotalSegundos; $i -gt 0; $i--) {
+              $HorasRestantes = [math]::Floor($i / 3600)
+              $MinutosRestantes = [math]::Floor(($i % 3600) / 60)
+              $SegundosRestantes = $i % 60
+              
+              Write-Host "Tiempo restante: ${HorasRestantes}h ${MinutosRestantes}m ${SegundosRestantes}s"
+              Start-Sleep -Seconds 1
+          }
+          
+          Write-Host "⏰ Tiempo agotado - PC se apagará"
